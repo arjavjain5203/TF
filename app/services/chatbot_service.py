@@ -89,12 +89,12 @@ class ChatbotService:
                     response.message(msg)
 
             elif state == "ADD_MEMBER_RELATION":
-                if 'parent_id' not in data: # First input is relative ID
+                if 'parent_id' not in data:
                     try:
                         relative_id = int(body)
                         data['relative_id'] = relative_id
                         await self.user_service.update_state(user.id, "ADD_MEMBER_RELATION_TYPE", data)
-                        response.message("Is the new member a (1) Parent, (2) Child, or (3) Spouse of the selected relative?")
+                        response.message("What is the relationship of the NEW member to the relative?\n1. Mother\n2. Father\n3. Child\n4. Spouse\n5. Brother\n6. Sister")
                     except ValueError:
                         response.message("Invalid ID. Please enter a number.")
                 
@@ -109,33 +109,35 @@ class ChatbotService:
                          await self.user_service.clear_state(user.id)
                          return str(response)
 
-                    # 1: Parent, 2: Child, 3: Spouse
-                    if choice == 1: # Parent of relative
+                    if choice == 1: # Mother
                         new_gen = relative.generation_level - 1
                         relationship_type = "parent"
-                    elif choice == 2: # Child of relative
+                        data['gender'] = Gender.FEMALE.value
+                    elif choice == 2: # Father
+                        new_gen = relative.generation_level - 1
+                        relationship_type = "parent"
+                        data['gender'] = Gender.MALE.value
+                    elif choice == 3: # Child
                         new_gen = relative.generation_level + 1
                         relationship_type = "child"
-                    elif choice == 3: # Spouse
+                    elif choice == 4: # Spouse
                         new_gen = relative.generation_level
                         relationship_type = "spouse"
+                    elif choice == 5: # Brother
+                        new_gen = relative.generation_level
+                        relationship_type = "sibling"
+                        data['gender'] = Gender.MALE.value
+                    elif choice == 6: # Sister
+                        new_gen = relative.generation_level
+                        relationship_type = "sibling"
+                        data['gender'] = Gender.FEMALE.value
                     else:
-                        response.message("Invalid choice. Enter 1, 2, or 3.")
+                        response.message("Invalid choice. Enter 1-6.")
                         return str(response)
-                    
-                    # Validate generation limit
-                    # data['generation'] = new_gen (moved down)
-                    
-                    # Validate generation - RESTRICTION REMOVED
-                    # if new_gen < 1: ...
-                    
-                    # Validate generation - RESTRICTION REMOVED
-                    # if new_gen < 1: ...
 
                     data['generation'] = new_gen
                     data['relationship_type'] = relationship_type
                     
-                    # Finalize
                     await self.finalize_add_member(user, data, response)
                 except ValueError:
                      response.message("Invalid input. Please enter a number.")
@@ -171,20 +173,90 @@ class ChatbotService:
                      await self.member_service.lock_member(member_id, user.id)
                      data['member_id'] = member_id
                      await self.user_service.update_state(user.id, "EDIT_SELECT_FIELD", data)
-                     response.message(f"Editing {member.name}. What do you want to change?\n1. Name\n2. DOB\n3. Gender\n4. Phone")
+                     response.message(f"Editing {member.name}. What do you want to change?\n1. Name\n2. DOB\n3. Gender\n4. Phone\n5. Relation")
                  except ValueError:
                       response.message("Invalid ID.")
 
             elif state == "EDIT_SELECT_FIELD":
                  choice = body.strip()
                  data['edit_field'] = choice
-                 await self.user_service.update_state(user.id, "EDIT_ENTER_VALUE", data)
-                 if choice == '1': response.message("Enter new Name:")
-                 elif choice == '2': response.message("Enter new DOB (DD-MM-YYYY):")
-                 elif choice == '3': response.message("Enter new Gender (Male/Female/Other):")
-                 elif choice == '4': response.message("Enter new Phone:")
+                 
+                 if choice == '5':
+                      # Editing relation
+                      tree, role = await self.tree_service.get_active_tree(user.id)
+                      members = await self.member_service.get_members_by_tree(tree.id) if tree else []
+                      msg = "Select the relative to link to:\n"
+                      for m in members:
+                           if m.id != data['member_id']:
+                               msg += f"{m.id}. {m.name}\n"
+                      await self.user_service.update_state(user.id, "EDIT_RELATION_TARGET", data)
+                      response.message(msg)
                  else:
-                      response.message("Invalid choice.")
+                      await self.user_service.update_state(user.id, "EDIT_ENTER_VALUE", data)
+                      if choice == '1': response.message("Enter new Name:")
+                      elif choice == '2': response.message("Enter new DOB (DD-MM-YYYY):")
+                      elif choice == '3': response.message("Enter new Gender (Male/Female/Other):")
+                      elif choice == '4': response.message("Enter new Phone:")
+                      else:
+                           response.message("Invalid choice.")
+            
+            elif state == "EDIT_RELATION_TARGET":
+                 try:
+                     target_id = int(body.strip())
+                     data['edit_relation_target'] = target_id
+                     await self.user_service.update_state(user.id, "EDIT_RELATION_TYPE", data)
+                     response.message("What is the relationship of the edited member to this relative?\n1. Mother\n2. Father\n3. Child\n4. Spouse\n5. Brother\n6. Sister")
+                 except ValueError:
+                     response.message("Invalid ID. Enter a number.")
+
+            elif state == "EDIT_RELATION_TYPE":
+                 try:
+                     choice = int(body.strip())
+                     member_id = data['member_id']
+                     target_id = data['edit_relation_target']
+                     
+                     target = await self.member_service.get_member(target_id)
+                     if not target:
+                          response.message("Relative not found.")
+                          return str(response)
+
+                     # Delete old relationships where this member is a child (assuming single parent linkage usually, or just drop all and reset)
+                     # For simplicity, we just add the new relationship
+                     rel_type = ""
+                     updates = {}
+                     if choice == 1:
+                         rel_type = "parent"
+                         updates['gender'] = Gender.FEMALE
+                     elif choice == 2:
+                         rel_type = "parent"
+                         updates['gender'] = Gender.MALE
+                     elif choice == 3:
+                         rel_type = "child"
+                     elif choice == 4:
+                         rel_type = "spouse"
+                     elif choice == 5:
+                         rel_type = "sibling"
+                         updates['gender'] = Gender.MALE
+                     elif choice == 6:
+                         rel_type = "sibling"
+                         updates['gender'] = Gender.FEMALE
+                     
+                     if updates:
+                          await self.member_service.update_member(member_id, **updates)
+                     
+                     if rel_type == "child":
+                          await self.member_service.add_relationship(target.tree_id, target_id, member_id, "parent")
+                     elif rel_type == "parent":
+                          await self.member_service.add_relationship(target.tree_id, member_id, target_id, "parent")
+                     elif rel_type in ["spouse", "sibling"]:
+                          await self.member_service.add_relationship(target.tree_id, target_id, member_id, rel_type)
+
+                     await self.member_service.unlock_member(member_id, user.id)
+                     response.message("✅ Relationship updated successfully!")
+                     await self.user_service.clear_state(user.id)
+                     await self.show_main_menu(response)
+                 except ValueError:
+                     response.message("Invalid choice. Enter 1-6.")
             
             elif state == "EDIT_ENTER_VALUE":
                  member_id = data['member_id']
@@ -484,11 +556,18 @@ class ChatbotService:
                   rel_type = data['relationship_type']
                   
                   if rel_type == "child":
-                       # Relative is parent, new member is child
-                       await self.member_service.add_relationship(tree_id, relative_id, member_id)
+                       await self.member_service.add_relationship(tree_id, relative_id, member_id, "parent")
                   elif rel_type == "parent":
-                       # New member is parent, relative is child
-                       await self.member_service.add_relationship(tree_id, member_id, relative_id)
+                       await self.member_service.add_relationship(tree_id, member_id, relative_id, "parent")
+                  elif rel_type == "sibling":
+                       parents = await self.member_service.get_parents(tree_id, relative_id)
+                       if parents:
+                           for p_id in parents:
+                               await self.member_service.add_relationship(tree_id, p_id, member_id, "parent")
+                       else:
+                           await self.member_service.add_relationship(tree_id, relative_id, member_id, "sibling")
+                  elif rel_type == "spouse":
+                       await self.member_service.add_relationship(tree_id, relative_id, member_id, "spouse")
                   
              response.message(f"✅ Added {member_name} to the tree!")
              await self.user_service.clear_state(user_id)
@@ -503,31 +582,75 @@ class ChatbotService:
             
         member_map = {m.id: m for m in members}
         children_map = defaultdict(list)
-        child_ids = set()
+        child_to_parents = defaultdict(list)
+        partners_map = defaultdict(set)
         
         for r in relationships:
-            children_map[r.parent_id].append(r.child_id)
-            child_ids.add(r.child_id)
+            # Handle default empty strings in DB from old migrations
+            rtype = getattr(r, 'relation_type', 'parent') or 'parent'
             
-        # identifying roots (members who are not children of anyone in this tree)
+            if rtype == "parent":
+                children_map[r.parent_id].append(r.child_id)
+                child_to_parents[r.child_id].append(r.parent_id)
+            elif rtype == "spouse":
+                partners_map[r.parent_id].add(r.child_id)
+                partners_map[r.child_id].add(r.parent_id)
+            elif rtype == "sibling":
+                pass # Currently rendered separately if no parent
+                
+        # Link partners who share children implicitly
+        for child, parents in child_to_parents.items():
+            if len(parents) > 1:
+                for p1 in parents:
+                    for p2 in parents:
+                        if p1 != p2:
+                            partners_map[p1].add(p2)
+                            
+        # Roots are nodes with no parents
+        child_ids = set()
+        for r in relationships:
+            rtype = getattr(r, 'relation_type', 'parent') or 'parent'
+            if rtype == "parent": child_ids.add(r.child_id)
+            
         roots = [m for m in members if m.id not in child_ids]
-        # Sort roots by generation (usually 1) and ID
         roots.sort(key=lambda m: (m.generation_level, m.id))
         
         output = [f"🌳 *Your Family Tree* ({len(members)} members)\n"]
+        drawn_members = set()
         
+        def format_member(m):
+            g_str = str(m.gender).lower()
+            gender_symbol = "F" if "female" in g_str else "M" if "male" in g_str else "O"
+            return f"{m.name} ({gender_symbol})"
+
         def print_tree(member_id, prefix, is_last):
+            if member_id in drawn_members: return
             member = member_map.get(member_id)
             if not member: return
             
-            connector = "└── " if is_last else "├── "
-            gender_symbol = "M" if "male" in str(member.gender).lower() else "F" if "female" in str(member.gender).lower() else "O"
+            # Identify partners to draw together
+            partners = []
+            for pid in partners_map.get(member_id, set()):
+                p_member = member_map.get(pid)
+                if p_member and p_member.id not in drawn_members:
+                    partners.append(p_member)
+                    drawn_members.add(p_member.id)
+                    
+            drawn_members.add(member_id)
             
-            line = f"{prefix}{connector}{member.name} ({gender_symbol}), Gen {member.generation_level}"
+            connector = "└── " if is_last else "├── "
+            nodes = [format_member(member)] + [format_member(p) for p in partners]
+            nodes_text = " & ".join(nodes)
+            
+            line = f"{prefix}{connector}{nodes_text}, Gen {member.generation_level}"
             output.append(line)
             
-            children = children_map.get(member_id, [])
-            # Sort children by DOB
+            # Combine children of member and partners
+            all_children_ids = set(children_map.get(member_id, []))
+            for p in partners:
+                all_children_ids.update(children_map.get(p.id, []))
+                
+            children = list(all_children_ids)
             children.sort(key=lambda cid: member_map[cid].dob if member_map.get(cid) and member_map[cid].dob else date.max)
             
             new_prefix = prefix + ("    " if is_last else "│   ")
@@ -535,18 +658,32 @@ class ChatbotService:
                 print_tree(child_id, new_prefix, i == len(children) - 1)
 
         for i, root in enumerate(roots):
-            member = root
-            gender_symbol = "M" if "male" in str(member.gender).lower() else "F" if "female" in str(member.gender).lower() else "O"
-            line = f"{member.name} ({gender_symbol}), Gen {member.generation_level}"
+            if root.id in drawn_members: continue
+            
+            partners = []
+            for pid in partners_map.get(root.id, set()):
+                p_member = member_map.get(pid)
+                if p_member and p_member.id not in drawn_members:
+                    partners.append(p_member)
+                    drawn_members.add(p_member.id)
+            
+            drawn_members.add(root.id)
+            
+            nodes = [format_member(root)] + [format_member(p) for p in partners]
+            nodes_text = " & ".join(nodes)
+            line = f"{nodes_text}, Gen {root.generation_level}"
             output.append(line)
             
-            children = children_map.get(member.id, [])
+            all_children_ids = set(children_map.get(root.id, []))
+            for p in partners:
+                all_children_ids.update(children_map.get(p.id, []))
+                
+            children = list(all_children_ids)
             children.sort(key=lambda cid: member_map[cid].dob if member_map.get(cid) and member_map[cid].dob else date.max)
             
             for j, child_id in enumerate(children):
                  print_tree(child_id, "", j == len(children) - 1)
                  
-            if i < len(roots) - 1:
-                output.append("") # Separator between trees
+            output.append("") # Separator between trees
 
         return "\n".join(output)

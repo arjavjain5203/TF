@@ -43,6 +43,7 @@ class Relationship(Base):
     tree_id = Column(Integer, ForeignKey("trees.id"), nullable=False)
     parent_id = Column(Integer, ForeignKey("members.id"), nullable=False)
     child_id = Column(Integer, ForeignKey("members.id"), nullable=False)
+    relation_type = Column(String, server_default="parent", nullable=False) # parent, spouse, sibling
 
     tree = relationship("Tree")
     parent = relationship("Member", foreign_keys=[parent_id], back_populates="children_relationships")

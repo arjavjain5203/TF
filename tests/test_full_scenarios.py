@@ -33,10 +33,10 @@ async def test_full_family_scenario(client: AsyncClient):
     
     # Select relative: 1 (Grandpa)
     response = await client.post("/webhook", data={"From": user_a, "Body": "1"}, headers=headers)
-    assert "Is the new member a" in response.text
+    assert "What is the relationship of the NEW member" in response.text
     
-    # Select relation: 3 (Spouse)
-    response = await client.post("/webhook", data={"From": user_a, "Body": "3"}, headers=headers)
+    # Select relation: 4 (Spouse)
+    response = await client.post("/webhook", data={"From": user_a, "Body": "4"}, headers=headers)
     assert "Added Grandma to the tree" in response.text
 
     # ==========================================
@@ -61,7 +61,7 @@ async def test_full_family_scenario(client: AsyncClient):
     await client.post("/webhook", data={"From": user_a, "Body": "Male"}, headers=headers)
     await client.post("/webhook", data={"From": user_a, "Body": "skip"}, headers=headers)
     await client.post("/webhook", data={"From": user_a, "Body": "1"}, headers=headers) # Grandpa
-    response = await client.post("/webhook", data={"From": user_a, "Body": "2"}, headers=headers) # Child
+    response = await client.post("/webhook", data={"From": user_a, "Body": "3"}, headers=headers) # Child
     assert "Added Dad to the tree" in response.text
 
     # ==========================================
@@ -75,7 +75,7 @@ async def test_full_family_scenario(client: AsyncClient):
     await client.post("/webhook", data={"From": user_a, "Body": "Male"}, headers=headers)
     await client.post("/webhook", data={"From": user_a, "Body": "skip"}, headers=headers)
     await client.post("/webhook", data={"From": user_a, "Body": "1"}, headers=headers) # Grandpa
-    response = await client.post("/webhook", data={"From": user_a, "Body": "1"}, headers=headers) # Parent
+    response = await client.post("/webhook", data={"From": user_a, "Body": "2"}, headers=headers) # Father
     assert "Added GreatGrandpa to the tree" in response.text
 
     # View Tree

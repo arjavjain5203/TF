@@ -38,10 +38,17 @@ class MemberService:
         await self.db.refresh(member)
         return member
 
-    async def add_relationship(self, tree_id: int, parent_id: int, child_id: int):
-        relationship = Relationship(tree_id=tree_id, parent_id=parent_id, child_id=child_id)
+    async def add_relationship(self, tree_id: int, parent_id: int, child_id: int, relation_type: str = "parent"):
+        relationship = Relationship(tree_id=tree_id, parent_id=parent_id, child_id=child_id, relation_type=relation_type)
         self.db.add(relationship)
         await self.db.commit()
+
+    async def get_parents(self, tree_id: int, child_id: int) -> List[int]:
+        result = await self.db.execute(
+            select(Relationship.parent_id)
+            .filter(Relationship.tree_id == tree_id, Relationship.child_id == child_id, Relationship.relation_type == "parent")
+        )
+        return result.scalars().all()
 
     async def update_member(self, member_id: int, **kwargs):
         member = await self.get_member(member_id)

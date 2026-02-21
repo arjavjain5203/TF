@@ -11,25 +11,18 @@ def build_engine_url(raw_url: str):
     - Replaces postgres:// with postgresql+asyncpg://
     - Strips ?sslmode=require from query params and passes it as connect_args instead
     """
-    # Fix scheme for asyncpg
     if raw_url.startswith("postgres://"):
         raw_url = raw_url.replace("postgres://", "postgresql+asyncpg://", 1)
 
-    parsed = urlparse(raw_url)
-    query_params = parse_qs(parsed.query)
-
-    # Extract sslmode if present
-    sslmode = query_params.pop("sslmode", [None])[0]
-
-    # Rebuild URL without sslmode
-    new_query = urlencode({k: v[0] for k, v in query_params.items()})
-    clean_url = urlunparse(parsed._replace(query=new_query))
-
     connect_args = {}
-    if sslmode == "require":
+    if "?sslmode=require" in raw_url:
+        raw_url = raw_url.replace("?sslmode=require", "")
+        connect_args["ssl"] = "require"
+    elif "&sslmode=require" in raw_url:
+        raw_url = raw_url.replace("&sslmode=require", "")
         connect_args["ssl"] = "require"
 
-    return clean_url, connect_args
+    return raw_url, connect_args
 
 database_url, connect_args = build_engine_url(settings.DATABASE_URL)
 
